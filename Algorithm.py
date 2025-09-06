@@ -9,17 +9,50 @@ def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 # Hàm loss với penalty
 def logistic_loss(X, y, w, penalty=None, lam=0.01):
+    """
+    Logistic loss (cross-entropy) với auto-balance class weight.
+    Tự động gán trọng số theo công thức w_c = N / (K * n_c).
+
+    Parameters
+    ----------
+    X : ndarray, shape (m, d)
+        Ma trận dữ liệu.
+    y : ndarray, shape (m,)
+        Nhãn (0..K-1).
+    w : ndarray, shape (d, K)
+        Trọng số mô hình.
+    penalty : str, optional ("l1", "l2")
+        Loại regularization.
+    lam : float
+        Hệ số regularization.
+
+    Returns
+    -------
+    loss : float
+    """
     m = len(y)
     logits = X @ w
-    probs = softmax(logits)
-    y_onehot = np.eye(probs.shape[1])[y]
+    exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True))  # tránh overflow
+    probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
 
-    loss = -np.sum(y_onehot * np.log(probs + 1e-8)) / m
+    # One-hot encode y
+    K = probs.shape[1]
+    y_onehot = np.eye(K)[y]
 
-    if penalty == "l2":  # Ridge
+    # --- AUTO-BALANCE ---
+    class_counts = np.bincount(y, minlength=K)
+    weights = m / (K * class_counts)   # w_c = N / (K * n_c)
+    sample_weights = weights[y]
+
+    # Weighted cross-entropy
+    loss = -np.sum(sample_weights * np.sum(y_onehot * np.log(probs + 1e-8), axis=1)) / np.sum(sample_weights)
+
+    # Regularization
+    if penalty == "l2":
         loss += lam * np.sum(w ** 2) / (2 * m)
-    elif penalty == "l1":  # Lasso
+    elif penalty == "l1":
         loss += lam * np.sum(np.abs(w)) / (2 * m)
+
     return loss
 
 # Gradient của loss
@@ -43,7 +76,7 @@ def gradient(X, y, w, penalty=None, lam=0.01):
 
     return grad
 
-def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 1e-6):
+def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 1e-03):
     w = np.zeros((X.shape[1], len(np.unique(y))))
     losses = []
     for _ in range(epochs):
@@ -54,7 +87,7 @@ def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 1e
             break
     return w, losses
 
-def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000, penalty=None, lam=0.01, beta=0.8, tol=1e-6):
+def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000, penalty=None, lam=0.01, beta=0.8, tol=0.005):
     """
     Chạy Backtracking GD với nhiều alpha khác nhau.
     Vẽ loss curve, so sánh accuracy, chọn alpha tốt nhất.
@@ -375,7 +408,8 @@ def gradient_descent_run_all(X_train, y_train, X_test, y_test, learning_rates, e
 
     return results, best_model
 
-def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=1000, penalty=None, lam=0.01, momentum=0.9):
+def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=1000, penalty=None, lam=0.01,
+                           momentum=0.9):
     """
     Chạy Accelerated Gradient Descent (Nesterov) với nhiều learning rate khác nhau.
     Vẽ loss curve theo epochs và theo thời gian, tính accuracy và chọn model tốt nhất.
@@ -385,8 +419,7 @@ def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epo
     best_lr = None
     best_model = None
 
-    # --- Vẽ Loss vs Epochs ---
-    plt.figure(figsize=(8,6))
+    # --- Chạy và Lưu Kết Quả ---
     for lr in learning_rates:
         start = time.time()
         w, losses = accelerated_gd(X_train, y_train, lr=lr, epochs=epochs, penalty=penalty, lam=lam, momentum=momentum)
@@ -396,15 +429,18 @@ def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epo
         y_pred = predict(X_test, w)
         acc = accuracy_score(y_test, y_pred)
 
-        results[lr] = {"weights": w, "losses": losses, "accuracy": acc, "time": end-start}
-        plt.plot(losses, label=f"lr={lr} (acc={acc:.3f})")
+        results[lr] = {"weights": w, "losses": losses, "accuracy": acc, "time": end - start}
 
         # Update best model
         if acc > best_acc:
             best_acc = acc
             best_lr = lr
-            best_model = {"weights": w, "losses": losses, "accuracy": acc, "lr": lr, "time": end-start}
+            best_model = {"weights": w, "losses": losses, "accuracy": acc, "lr": lr, "time": end - start}
 
+    # --- Vẽ Loss vs Epochs ---
+    plt.figure(figsize=(8, 6))
+    for lr, info in results.items():
+        plt.plot(info['losses'], label=f"lr={lr} (acc={info['accuracy']:.3f})")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.title(f"Accelerated GD: Loss vs Epochs (penalty={penalty}, momentum={momentum})")
@@ -413,7 +449,7 @@ def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epo
     plt.show()
 
     # --- Vẽ Loss vs Time ---
-    plt.figure(figsize=(8,6))
+    plt.figure(figsize=(8, 6))
     for lr, info in results.items():
         time_axis = np.linspace(0, info["time"], len(info["losses"]))
         plt.plot(time_axis, info["losses"], label=f"lr={lr} (acc={info['accuracy']:.3f})")
@@ -424,7 +460,13 @@ def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epo
     plt.grid(True)
     plt.show()
 
-    print(f"\nBest learning rate: {best_lr}, Accuracy: {best_acc:.4f}, Time: {best_model['time']:.2f} sec")
+    # --- In ra kết quả tốt nhất ---
+    if best_model:
+        # Dòng mới được thêm vào để chỉ in ra kết quả tốt nhất
+        print(
+            f"Mô hình tốt nhất: Với alpha = {best_model['lr']} thì Loss = {best_model['losses'][-1]:.4f} sau {len(best_model['losses'])} vòng lặp, đạt Accuracy = {best_model['accuracy']:.4f}")
+    else:
+        print("Không có mô hình nào được huấn luyện.")
 
     return results, best_model
 
