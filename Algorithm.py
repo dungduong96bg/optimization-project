@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from Processing import predict,softmax,cross_entropy
 from sklearn.metrics import accuracy_score
 import time
+import pandas as pd
 # Hàm sigmoid
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))

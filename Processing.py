@@ -66,7 +66,7 @@ def train_test_split_data(write=False):
         y_train_df.to_csv('Data/Train_test/y_train.csv', index=False)
         y_test_df.to_csv('Data/Train_test/y_test.csv', index=False)
 
-    return X_train_df, X_test_df, y_train_df, y_test_df
+    return X_train, X_test, y_train, y_test
 
 if __name__ == '__main__':
     train_test_split_data(write=True)
