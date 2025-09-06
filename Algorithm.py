@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from Processing import predict,softmax,cross_entropy
+from Processing import predict,softmax,cross_entropy,f1_score
 from sklearn.metrics import accuracy_score
 import time
 import pandas as pd
@@ -77,20 +77,29 @@ def gradient(X, y, w, penalty=None, lam=0.01):
     return grad
 
 def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01, tol=1e-3):
+    """
+    Gradient Descent cơ bản, lưu lại toàn bộ history.
+    """
     w = np.zeros((X.shape[1], len(np.unique(y))))
-    losses = []
-    history = []  # lưu w theo từng epoch
+    history_w = []
+    losses_epoch = []
+    times = []
 
-    for _ in range(epochs):
+    start_time = time.time()
+
+    for epoch in range(epochs):
         grad = gradient(X, y, w, penalty, lam)
         w -= lr * grad
-        losses.append(logistic_loss(X, y, w, penalty, lam))
-        history.append(w.copy())  # lưu bản sao w tại epoch
+
+        # Lưu loss và weight
+        losses_epoch.append(logistic_loss(X, y, w, penalty, lam))
+        history_w.append(w.copy())
+        times.append(time.time() - start_time)
 
         if np.linalg.norm(grad) < tol:
             break
 
-    return {"weights": w, "losses": losses, "history": history}
+    return w, history_w, losses_epoch, times
 
 def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000, penalty=None, lam=0.01, beta=0.8, tol=0.005):
     """
@@ -349,154 +358,326 @@ def newton_backtracking(X, y, epochs=50, penalty=None, lam=0.01, alpha=0.25, bet
 
     return w, losses
 
-def accelerated_gd(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01, momentum=0.9):
+def accelerated_gd(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,
+                   momentum=0.9, tol=1e-3):
     w = np.zeros((X.shape[1], len(np.unique(y))))
     v = np.zeros_like(w)
-    losses = []
+
+    history_w = []
+    train_losses = []
+    times = []
+
+    start = time.time()
     for _ in range(epochs):
         grad = gradient(X, y, w - momentum*v, penalty, lam)
         v = momentum * v + lr * grad
         w -= v
-        losses.append(logistic_loss(X, y, w, penalty, lam))
-    return w, losses
 
-def gradient_descent_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=1000, penalty=None, lam=0.01, tol=1e-3):
-    """
-    Chạy gradient descent với nhiều learning rate khác nhau.
-    Vẽ train/test loss vs epoch và test loss vs time.
-    Chọn best model theo test loss thấp nhất.
-    """
+        # lưu loss, w và thời gian
+        train_losses.append(logistic_loss(X, y, w, penalty, lam))
+        history_w.append(w.copy())
+        times.append(time.time() - start)
+
+        if np.linalg.norm(grad) < tol:
+            break
+
+    return w, history_w, train_losses, times
+
+def gradient_descent_run_all(X_train, y_train, X_val, y_val,
+                             learning_rates,
+                             epochs=1000,
+                             penalty=None,
+                             lam=0.01,
+                             tol=1e-3):
     results = {}
-    best_test_loss = float("inf")
+    best_f1 = -1
     best_lr = None
     best_model = None
 
-    plt.figure(figsize=(8,6))
-
     for lr in learning_rates:
-        start = time.time()
-        # Train và lưu lịch sử w
-        gd_result = gradient_descent(X_train, y_train, lr=lr, epochs=epochs, penalty=penalty, lam=lam, tol=tol)
-        w_final = gd_result["weights"]
-        train_losses = gd_result["losses"]
-        history_w = gd_result["history"]
-        end = time.time()
+        print(f"\n🔹 Training with lr={lr}, penalty={penalty}...")
 
-        # Tính test loss theo từng epoch
-        test_losses = [logistic_loss(X_test, y_test, w_epoch, penalty, lam) for w_epoch in history_w]
+        # Train bằng gradient descent (phiên bản có lưu history_w)
+        w, history_w, train_losses, times = gradient_descent(
+            X_train, y_train,
+            lr=lr, epochs=epochs,
+            penalty=penalty, lam=lam, tol=tol
+        )
 
-        # Accuracy cuối cùng trên test
-        y_pred = predict(X_test, w_final)
-        acc = accuracy_score(y_test, y_pred)
+        # --- Evaluate trên Validation ---
+        val_losses_epoch, val_acc_epoch, val_f1_epoch = [], [], []
+        for w_epoch in history_w:
+            val_losses_epoch.append(logistic_loss(X_val, y_val, w_epoch, penalty, lam))
+            y_val_pred = predict(X_val, w_epoch)
+            val_acc_epoch.append(accuracy_score(y_val, y_val_pred))
+            val_f1_epoch.append(f1_score(y_val, y_val_pred, average="macro"))
+
+        # Epoch tối ưu (theo val_loss)
+        epoch_opt = int(np.argmin(val_losses_epoch))
+        w_opt = history_w[epoch_opt]
+
+        # Metrics tại epoch tối ưu
+        y_val_pred_opt = predict(X_val, w_opt)
+        acc_opt = accuracy_score(y_val, y_val_pred_opt)
+        f1_opt = f1_score(y_val, y_val_pred_opt, average="macro")
+
+        # Metrics tại epoch cuối
+        y_val_pred_final = predict(X_val, w)
+        acc_final = accuracy_score(y_val, y_val_pred_final)
+        f1_final = f1_score(y_val, y_val_pred_final, average="macro")
 
         results[lr] = {
-            "weights": w_final,
+            "weights": w,
+            "history_w": history_w,
             "train_losses": train_losses,
-            "test_losses": test_losses,
-            "accuracy": acc,
-            "time": end-start
+            "val_losses_epoch": val_losses_epoch,
+            "val_acc_epoch": val_acc_epoch,
+            "val_f1_epoch": val_f1_epoch,
+            "times": times,
+            "epoch_optimal": epoch_opt + 1,
+            "acc_at_opt_epoch": acc_opt,
+            "f1_at_opt_epoch": f1_opt,
+            "acc_final": acc_final,
+            "f1_final": f1_final,
+            "time_opt_epoch": times[epoch_opt],
+            "time_total_epoch": times[-1]
         }
 
-        # Vẽ test loss theo epoch
-        plt.plot(test_losses, label=f"lr={lr} (final test loss={test_losses[-1]:.3f}, acc={acc:.3f})")
-
-        # Cập nhật best model theo **test loss thấp nhất**
-        if test_losses[-1] < best_test_loss:
-            best_test_loss = test_losses[-1]
+        # Best model theo F1 tại epoch tối ưu
+        if f1_opt > best_f1:
+            best_f1 = f1_opt
             best_lr = lr
-            best_model = {
-                "weights": w_final,
-                "train_losses": train_losses,
-                "test_losses": test_losses,
-                "accuracy": acc,
-                "lr": lr,
-                "time": end-start
-            }
+            best_model = results[lr]
+
+    # --- Learning Curve: Train vs Val Loss ---
+    plt.figure(figsize=(10,6))
+    for lr, info in results.items():
+        epochs_range = range(1, len(info["train_losses"]) + 1)
+        plt.plot(epochs_range, info["train_losses"], label=f"Train lr={lr}")
+        plt.plot(epochs_range, info["val_losses_epoch"], "--", label=f"Val lr={lr}")
+
+        # Đánh dấu epoch tối ưu
+        epoch_opt = info["epoch_optimal"]
+        val_loss_opt = info["val_losses_epoch"][epoch_opt-1]
+        plt.scatter(epoch_opt, val_loss_opt, color="red", zorder=5)
+        plt.text(epoch_opt, val_loss_opt, f"opt={epoch_opt}", fontsize=8, color="red")
 
     plt.xlabel("Epochs")
-    plt.ylabel("Test Loss")
-    plt.title(f"Test Loss vs Epochs (penalty={penalty})")
+    plt.ylabel("Loss")
+    plt.title(f"Learning Curve: Train vs Val Loss (penalty={penalty})")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # --- Vẽ Test Loss vs Time ---
-    plt.figure(figsize=(8,6))
+    # --- Learning Curve: Validation F1 ---
+    plt.figure(figsize=(10,6))
     for lr, info in results.items():
-        time_axis = np.linspace(0, info["time"], len(info["test_losses"]))
-        plt.plot(time_axis, info["test_losses"], label=f"lr={lr} (final={info['test_losses'][-1]:.3f})")
-    plt.xlabel("Time (seconds)")
-    plt.ylabel("Test Loss")
-    plt.title(f"Test Loss vs Time (penalty={penalty})")
+        epochs_range = range(1, len(info["val_f1_epoch"]) + 1)
+        plt.plot(epochs_range, info["val_f1_epoch"], label=f"Val F1 lr={lr}")
+
+        epoch_opt = info["epoch_optimal"]
+        f1_opt = info["val_f1_epoch"][epoch_opt-1]
+        plt.scatter(epoch_opt, f1_opt, marker="o", color="red", zorder=5)
+        plt.text(epoch_opt, f1_opt, f"opt={epoch_opt}", fontsize=8, color="red")
+
+    plt.xlabel("Epochs")
+    plt.ylabel("Validation F1-score")
+    plt.title("Validation F1 per Epoch")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    print(f"\nBest learning rate: {best_lr}, Test Loss: {best_test_loss:.4f}, Accuracy: {best_model['accuracy']:.4f}, Time: {best_model['time']:.2f} sec")
+    # --- Learning Curve: Validation Accuracy ---
+    plt.figure(figsize=(10,6))
+    for lr, info in results.items():
+        epochs_range = range(1, len(info["val_acc_epoch"]) + 1)
+        plt.plot(epochs_range, info["val_acc_epoch"], label=f"Val Acc lr={lr}")
 
-    return results, best_model
+        epoch_opt = info["epoch_optimal"]
+        acc_opt = info["val_acc_epoch"][epoch_opt-1]
+        plt.scatter(epoch_opt, acc_opt, marker="o", color="red", zorder=5)
+        plt.text(epoch_opt, acc_opt, f"opt={epoch_opt}", fontsize=8, color="red")
 
-def accelerated_gd_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=1000, penalty=None, lam=0.01,
-                           momentum=0.9):
-    """
-    Chạy Accelerated Gradient Descent (Nesterov) với nhiều learning rate khác nhau.
-    Vẽ loss curve theo epochs và theo thời gian, tính accuracy và chọn model tốt nhất.
-    """
+    plt.xlabel("Epochs")
+    plt.ylabel("Validation Accuracy")
+    plt.title("Validation Accuracy per Epoch")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # --- Bảng kết quả ---
+    df_results = pd.DataFrame([
+        {
+            "Learning Rate": lr,
+            "Penalty": penalty,
+            "Acc_final": info["acc_final"],
+            "F1_final": info["f1_final"],
+            "Acc_at_opt": info["acc_at_opt_epoch"],
+            "F1_at_opt": info["f1_at_opt_epoch"],
+            "Epoch_optimal": info["epoch_optimal"],
+            "Total time": info["time_total_epoch"],
+            "Time_if_opt": info["time_opt_epoch"]
+        }
+        for lr, info in results.items()
+    ])
+
+    print("\n📊 Kết quả tổng hợp:")
+    print(df_results.sort_values("F1_at_opt", ascending=False))
+
+    print(f"\n✅ Best model: lr={best_lr}, penalty={penalty}, "
+          f"F1_opt={best_f1:.4f}")
+
+    return results, best_model, df_results
+
+
+def accelerated_gd_run_all(X_train, y_train, X_val, y_val,
+                           learning_rates,
+                           epochs=1000,
+                           penalty=None,
+                           lam=0.01,
+                           momentum=0.9,
+                           tol=1e-3):
     results = {}
-    best_acc = -1
+    best_f1 = -1
     best_lr = None
     best_model = None
 
-    # --- Chạy và Lưu Kết Quả ---
     for lr in learning_rates:
-        start = time.time()
-        w, losses = accelerated_gd(X_train, y_train, lr=lr, epochs=epochs, penalty=penalty, lam=lam, momentum=momentum)
-        end = time.time()
+        print(f"\n⚡ Training with Accelerated GD, lr={lr}, penalty={penalty}, momentum={momentum}...")
 
-        # Predict & Evaluate
-        y_pred = predict(X_test, w)
-        acc = accuracy_score(y_test, y_pred)
+        # Train bằng accelerated gradient descent (phiên bản có lưu history_w)
+        w, history_w, train_losses, times = accelerated_gd(
+            X_train, y_train,
+            lr=lr, epochs=epochs,
+            penalty=penalty, lam=lam,
+            momentum=momentum, tol=tol
+        )
 
-        results[lr] = {"weights": w, "losses": losses, "accuracy": acc, "time": end - start}
+        # --- Evaluate trên Validation ---
+        val_losses_epoch, val_acc_epoch, val_f1_epoch = [], [], []
+        for w_epoch in history_w:
+            val_losses_epoch.append(logistic_loss(X_val, y_val, w_epoch, penalty, lam))
+            y_val_pred = predict(X_val, w_epoch)
+            val_acc_epoch.append(accuracy_score(y_val, y_val_pred))
+            val_f1_epoch.append(f1_score(y_val, y_val_pred, average="macro"))
 
-        # Update best model
-        if acc > best_acc:
-            best_acc = acc
+        # Epoch tối ưu (theo val_loss)
+        epoch_opt = int(np.argmin(val_losses_epoch))
+        w_opt = history_w[epoch_opt]
+
+        # Metrics tại epoch tối ưu
+        y_val_pred_opt = predict(X_val, w_opt)
+        acc_opt = accuracy_score(y_val, y_val_pred_opt)
+        f1_opt = f1_score(y_val, y_val_pred_opt, average="macro")
+
+        # Metrics tại epoch cuối
+        y_val_pred_final = predict(X_val, w)
+        acc_final = accuracy_score(y_val, y_val_pred_final)
+        f1_final = f1_score(y_val, y_val_pred_final, average="macro")
+
+        results[lr] = {
+            "weights": w,
+            "history_w": history_w,
+            "train_losses": train_losses,
+            "val_losses_epoch": val_losses_epoch,
+            "val_acc_epoch": val_acc_epoch,
+            "val_f1_epoch": val_f1_epoch,
+            "times": times,
+            "epoch_optimal": epoch_opt + 1,
+            "acc_at_opt_epoch": acc_opt,
+            "f1_at_opt_epoch": f1_opt,
+            "acc_final": acc_final,
+            "f1_final": f1_final,
+            "time_opt_epoch": times[epoch_opt],
+            "time_total_epoch": times[-1]
+        }
+
+        # Best model theo F1 tại epoch tối ưu
+        if f1_opt > best_f1:
+            best_f1 = f1_opt
             best_lr = lr
-            best_model = {"weights": w, "losses": losses, "accuracy": acc, "lr": lr, "time": end - start}
+            best_model = results[lr]
 
-    # --- Vẽ Loss vs Epochs ---
-    plt.figure(figsize=(8, 6))
+    # --- Learning Curve: Train vs Val Loss ---
+    plt.figure(figsize=(10,6))
     for lr, info in results.items():
-        plt.plot(info['losses'], label=f"lr={lr} (acc={info['accuracy']:.3f})")
+        epochs_range = range(1, len(info["train_losses"]) + 1)
+        plt.plot(epochs_range, info["train_losses"], label=f"Train lr={lr}")
+        plt.plot(epochs_range, info["val_losses_epoch"], "--", label=f"Val lr={lr}")
+
+        # Đánh dấu epoch tối ưu
+        epoch_opt = info["epoch_optimal"]
+        val_loss_opt = info["val_losses_epoch"][epoch_opt-1]
+        plt.scatter(epoch_opt, val_loss_opt, color="red", zorder=5)
+        plt.text(epoch_opt, val_loss_opt, f"opt={epoch_opt}", fontsize=8, color="red")
+
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
-    plt.title(f"Accelerated GD: Loss vs Epochs (penalty={penalty}, momentum={momentum})")
+    plt.title(f"Learning Curve (Accelerated GD): Train vs Val Loss (penalty={penalty})")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # --- Vẽ Loss vs Time ---
-    plt.figure(figsize=(8, 6))
+    # --- Learning Curve: Validation F1 ---
+    plt.figure(figsize=(10,6))
     for lr, info in results.items():
-        time_axis = np.linspace(0, info["time"], len(info["losses"]))
-        plt.plot(time_axis, info["losses"], label=f"lr={lr} (acc={info['accuracy']:.3f})")
-    plt.xlabel("Time (seconds)")
-    plt.ylabel("Loss")
-    plt.title(f"Accelerated GD: Loss vs Time (penalty={penalty}, momentum={momentum})")
+        epochs_range = range(1, len(info["val_f1_epoch"]) + 1)
+        plt.plot(epochs_range, info["val_f1_epoch"], label=f"Val F1 lr={lr}")
+
+        epoch_opt = info["epoch_optimal"]
+        f1_opt = info["val_f1_epoch"][epoch_opt-1]
+        plt.scatter(epoch_opt, f1_opt, marker="o", color="red", zorder=5)
+        plt.text(epoch_opt, f1_opt, f"opt={epoch_opt}", fontsize=8, color="red")
+
+    plt.xlabel("Epochs")
+    plt.ylabel("Validation F1-score")
+    plt.title("Validation F1 per Epoch (Accelerated GD)")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # --- In ra kết quả tốt nhất ---
-    if best_model:
-        # Dòng mới được thêm vào để chỉ in ra kết quả tốt nhất
-        print(
-            f"Mô hình tốt nhất: Với alpha = {best_model['lr']} thì Loss = {best_model['losses'][-1]:.4f} sau {len(best_model['losses'])} vòng lặp, đạt Accuracy = {best_model['accuracy']:.4f}")
-    else:
-        print("Không có mô hình nào được huấn luyện.")
+    # --- Learning Curve: Validation Accuracy ---
+    plt.figure(figsize=(10,6))
+    for lr, info in results.items():
+        epochs_range = range(1, len(info["val_acc_epoch"]) + 1)
+        plt.plot(epochs_range, info["val_acc_epoch"], label=f"Val Acc lr={lr}")
 
-    return results, best_model
+        epoch_opt = info["epoch_optimal"]
+        acc_opt = info["val_acc_epoch"][epoch_opt-1]
+        plt.scatter(epoch_opt, acc_opt, marker="o", color="red", zorder=5)
+        plt.text(epoch_opt, acc_opt, f"opt={epoch_opt}", fontsize=8, color="red")
+
+    plt.xlabel("Epochs")
+    plt.ylabel("Validation Accuracy")
+    plt.title("Validation Accuracy per Epoch (Accelerated GD)")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # --- Bảng kết quả ---
+    df_results = pd.DataFrame([
+        {
+            "Learning Rate": lr,
+            "Penalty": penalty,
+            "Momentum": momentum,
+            "Acc_final": info["acc_final"],
+            "F1_final": info["f1_final"],
+            "Acc_at_opt": info["acc_at_opt_epoch"],
+            "F1_at_opt": info["f1_at_opt_epoch"],
+            "Epoch_optimal": info["epoch_optimal"],
+            "Total time": info["time_total_epoch"],
+            "Time_if_opt": info["time_opt_epoch"]
+        }
+        for lr, info in results.items()
+    ])
+
+    print("\n📊 Kết quả tổng hợp:")
+    print(df_results.sort_values("F1_at_opt", ascending=False))
+
+    print(f"\n✅ Best Accelerated GD model: lr={best_lr}, penalty={penalty}, "
+          f"F1_opt={best_f1:.4f}")
+
+    return results, best_model, df_results
 
 def newton_fixed_lr_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=50, penalty=None, lam=0.01):
     """
