@@ -30,38 +30,54 @@ def predict(X, w):
         probs = softmax(z)
         return np.argmax(probs, axis=1)
 
-def train_test_split_data(write = False):
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+
+
+def train_test_split_data(write=False):
+    # Đọc dữ liệu
     df = pd.read_csv('Data/data.csv', sep=';')
+
+    # Chuyển Target sang dạng số
     df['Target_num'] = LabelEncoder().fit_transform(df['Target'])
 
+    # Tách X, y
     X = df.drop(columns=['Target', 'Target_num'])
     y = df['Target_num']
 
-    stratifi_list = ["Marital status", "Educational special needs",
-                     "Gender", "Unemployment rate", "Nacionality"]
+    # Lưu tên cột để dùng sau khi scale
+    feature_names = X.columns
 
-    df['strata'] = df[stratifi_list].astype(str).agg('_'.join, axis=1)
-
-    # Đếm số lượng trong từng nhóm
-    counts = df['strata'].value_counts()
-
-    # Giữ lại chỉ những nhóm có >= 2 quan sát
-    valid_groups = counts[counts >= 2].index
-    df = df[df['strata'].isin(valid_groups)]
-
-    X = df.drop(columns=['Target', 'Target_num'])
-    y = df['Target_num']
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X)
+    # Tách train-test
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=df['strata']
+        X, y, test_size=0.2, random_state=42
     )
-    if write:
-        X_train.to_csv('Data/Train_test/X_train.csv', index=False)
-        X_test.to_csv('Data/Train_test/X_test.csv', index=False)
-        y_train.to_csv('Data/Train_test/y_train.csv', index=False)
-        y_test.to_csv('Data/Train_test/y_test.csv', index=False)
 
-    return X_train, X_test, y_train, y_test
+    # Scale dữ liệu: fit trên train, transform cả train và test
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    # Chuyển về DataFrame để lưu CSV
+    X_train_df = pd.DataFrame(X_train, columns=feature_names)
+    X_test_df = pd.DataFrame(X_test, columns=feature_names)
+    y_train_df = pd.DataFrame(y_train)
+    y_test_df = pd.DataFrame(y_test)
+
+    # Lưu CSV nếu cần
+    if write:
+        X_train_df.to_csv('Data/Train_test/X_train.csv', index=False)
+        X_test_df.to_csv('Data/Train_test/X_test.csv', index=False)
+        y_train_df.to_csv('Data/Train_test/y_train.csv', index=False)
+        y_test_df.to_csv('Data/Train_test/y_test.csv', index=False)
+
+    return X_train_df, X_test_df, y_train_df, y_test_df
+
+if __name__ == '__main__':
+    train_test_split_data(write=True)
+
+
 
 

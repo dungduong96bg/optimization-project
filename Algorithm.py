@@ -95,7 +95,6 @@ def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000,
 
     return results, best_model
 
-
 def mini_batch_gd(X_train, y_train, X_test, y_test, lr_values, epochs=1000, batch_size=32, penalty=None, lam=0.01):
     """
     Chạy Mini-batch GD với nhiều learning rate.
@@ -158,7 +157,6 @@ def mini_batch_gd(X_train, y_train, X_test, y_test, lr_values, epochs=1000, batc
     print(f"\nBest learning rate: {best_lr}, Accuracy: {best_acc:.4f}")
 
     return results, best_model
-
 
 def stochastic_gd( X_train, y_train, X_test, y_test, lr_values,epochs=100, penalty=None, lam=0.01, print_every=10):
     X_train = np.array(X_train)
@@ -224,7 +222,6 @@ def stochastic_gd( X_train, y_train, X_test, y_test, lr_values,epochs=100, penal
     print(f"\nBest learning rate: {best_lr}, Accuracy: {best_acc:.4f}")
 
     return results, best_model
-
 
 def newton_method(X, y, lr=0.1, epochs=50, penalty=None, lam=0.01):
     """
