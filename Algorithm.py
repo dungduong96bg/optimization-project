@@ -23,20 +23,26 @@ def logistic_loss(X, y, w, penalty=None, lam=0.01):
 
 # Gradient của loss
 def gradient(X, y, w, penalty=None, lam=0.01):
-    m = len(y)
-    logits = X @ w
-    probs = softmax(logits)
-    y_onehot = np.eye(probs.shape[1])[y]
+    if isinstance(X, pd.DataFrame):
+        X = X.values
 
-    grad = (X.T @ (probs - y_onehot)) / m
+    m = len(y)
+    logits = X @ w                # shape: (m, 3)
+    probs = softmax(logits)       # shape: (m, 3)
+
+    y = np.array(y).astype(int)
+    y_onehot = np.eye(probs.shape[1])[y]  # shape: (m, 3)
+
+    grad = (X.T @ (probs - y_onehot)) / m  # shape: (n_features, 3)
 
     if penalty == "l2":
         grad += lam * w / m
     elif penalty == "l1":
         grad += lam * np.sign(w) / m
+
     return grad
 
-def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 0.005):
+def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 1e-6):
     w = np.zeros((X.shape[1], len(np.unique(y))))
     losses = []
     for _ in range(epochs):
@@ -47,7 +53,7 @@ def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 0.
             break
     return w, losses
 
-def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000, penalty=None, lam=0.01, beta=0.8, tol=1e-3):
+def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000, penalty=None, lam=0.01, beta=0.8, tol=1e-6):
     """
     Chạy Backtracking GD với nhiều alpha khác nhau.
     Vẽ loss curve, so sánh accuracy, chọn alpha tốt nhất.

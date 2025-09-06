@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder,StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 def softmax(z):
     z = np.atleast_2d(z)  # ép về 2D
@@ -29,12 +28,6 @@ def predict(X, w):
     else:  # multi-class
         probs = softmax(z)
         return np.argmax(probs, axis=1)
-
-
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-
 
 def train_test_split_data(write=False):
     # Đọc dữ liệu
