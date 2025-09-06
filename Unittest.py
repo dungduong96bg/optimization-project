@@ -15,7 +15,7 @@ def run_all_cases_test(X_train, y_train, X_test, y_test,
     """
     optimizers = ["gd"]
     penalties = [None, "l1", "l2"]
-    learning_rates = [0.1, 0.01, 0.001,1,0.5,0.8,1.2, 1.5,2]
+    learning_rates = [0.1, 0.01, 0.001,1,0.5,0.8,1.2, 1.5]
     #learning_rates = [0.5,0.8,1,1.2]
     alpha_0 = [0.1,0.5,0.8,1,1.2,1.5,2,3]
     results = {}

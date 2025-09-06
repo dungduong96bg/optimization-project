@@ -76,16 +76,21 @@ def gradient(X, y, w, penalty=None, lam=0.01):
 
     return grad
 
-def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01,tol = 1e-03):
+def gradient_descent(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01, tol=1e-3):
     w = np.zeros((X.shape[1], len(np.unique(y))))
     losses = []
+    history = []  # lưu w theo từng epoch
+
     for _ in range(epochs):
         grad = gradient(X, y, w, penalty, lam)
         w -= lr * grad
         losses.append(logistic_loss(X, y, w, penalty, lam))
+        history.append(w.copy())  # lưu bản sao w tại epoch
+
         if np.linalg.norm(grad) < tol:
             break
-    return w, losses
+
+    return {"weights": w, "losses": losses, "history": history}
 
 def backtracking_gd(X_train, y_train, X_test, y_test, alpha_values, epochs=1000, penalty=None, lam=0.01, beta=0.8, tol=0.005):
     """
@@ -355,56 +360,79 @@ def accelerated_gd(X, y, lr=0.01, epochs=1000, penalty=None, lam=0.01, momentum=
         losses.append(logistic_loss(X, y, w, penalty, lam))
     return w, losses
 
-def gradient_descent_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=1000, penalty=None, lam=0.01):
+def gradient_descent_run_all(X_train, y_train, X_test, y_test, learning_rates, epochs=1000, penalty=None, lam=0.01, tol=1e-3):
     """
-    Chạy gradient descent với nhiều learning rate khác nhau
-    Vẽ loss curve theo epochs và theo thời gian, tính accuracy và chọn model tốt nhất
+    Chạy gradient descent với nhiều learning rate khác nhau.
+    Vẽ train/test loss vs epoch và test loss vs time.
+    Chọn best model theo test loss thấp nhất.
     """
     results = {}
-    best_acc = -1
+    best_test_loss = float("inf")
     best_lr = None
     best_model = None
 
-    # --- Vẽ Loss vs Epochs ---
     plt.figure(figsize=(8,6))
+
     for lr in learning_rates:
         start = time.time()
-        w, losses = gradient_descent(X_train, y_train, lr=lr, epochs=epochs, penalty=penalty, lam=lam)
+        # Train và lưu lịch sử w
+        gd_result = gradient_descent(X_train, y_train, lr=lr, epochs=epochs, penalty=penalty, lam=lam, tol=tol)
+        w_final = gd_result["weights"]
+        train_losses = gd_result["losses"]
+        history_w = gd_result["history"]
         end = time.time()
 
-        # Predict & Evaluate
-        y_pred = predict(X_test, w)
+        # Tính test loss theo từng epoch
+        test_losses = [logistic_loss(X_test, y_test, w_epoch, penalty, lam) for w_epoch in history_w]
+
+        # Accuracy cuối cùng trên test
+        y_pred = predict(X_test, w_final)
         acc = accuracy_score(y_test, y_pred)
 
-        results[lr] = {"weights": w, "losses": losses, "accuracy": acc, "time": end-start}
-        plt.plot(losses, label=f"lr={lr} (acc={acc:.3f})")
+        results[lr] = {
+            "weights": w_final,
+            "train_losses": train_losses,
+            "test_losses": test_losses,
+            "accuracy": acc,
+            "time": end-start
+        }
 
-        # Update best model
-        if acc > best_acc:
-            best_acc = acc
+        # Vẽ test loss theo epoch
+        plt.plot(test_losses, label=f"lr={lr} (final test loss={test_losses[-1]:.3f}, acc={acc:.3f})")
+
+        # Cập nhật best model theo **test loss thấp nhất**
+        if test_losses[-1] < best_test_loss:
+            best_test_loss = test_losses[-1]
             best_lr = lr
-            best_model = {"weights": w, "losses": losses, "accuracy": acc, "lr": lr, "time": end-start}
+            best_model = {
+                "weights": w_final,
+                "train_losses": train_losses,
+                "test_losses": test_losses,
+                "accuracy": acc,
+                "lr": lr,
+                "time": end-start
+            }
 
     plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.title(f"Loss vs Epochs (penalty={penalty})")
+    plt.ylabel("Test Loss")
+    plt.title(f"Test Loss vs Epochs (penalty={penalty})")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # --- Vẽ Loss vs Time ---
+    # --- Vẽ Test Loss vs Time ---
     plt.figure(figsize=(8,6))
     for lr, info in results.items():
-        time_axis = np.linspace(0, info["time"], len(info["losses"]))
-        plt.plot(time_axis, info["losses"], label=f"lr={lr} (acc={info['accuracy']:.3f})")
+        time_axis = np.linspace(0, info["time"], len(info["test_losses"]))
+        plt.plot(time_axis, info["test_losses"], label=f"lr={lr} (final={info['test_losses'][-1]:.3f})")
     plt.xlabel("Time (seconds)")
-    plt.ylabel("Loss")
-    plt.title(f"Loss vs Time (penalty={penalty})")
+    plt.ylabel("Test Loss")
+    plt.title(f"Test Loss vs Time (penalty={penalty})")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    print(f"\nBest learning rate: {best_lr}, Accuracy: {best_acc:.4f}, Time: {best_model['time']:.2f} sec")
+    print(f"\nBest learning rate: {best_lr}, Test Loss: {best_test_loss:.4f}, Accuracy: {best_model['accuracy']:.4f}, Time: {best_model['time']:.2f} sec")
 
     return results, best_model
 
